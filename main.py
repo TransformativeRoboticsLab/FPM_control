@@ -4,7 +4,7 @@ import time
 # -- config --
 PORT = "/dev/tty.usbmodem2048327E55531"
 BAUD = 115200
-FEED_RATE = 3000  # mm/min, tune to taste
+FEED_RATE = 5000  # mm/min, tune to taste
 
 points = [
     (10, 20, 5),
@@ -37,9 +37,9 @@ with serial.Serial(PORT, BAUD, timeout=1) as ser:
     time.sleep(2)  # let the board wake up after connect
     ser.read_all()  # flush startup noise
 
-    print("Homing...")
-    send(ser, "G28")           # home all axes
-    wait_for_ok(ser, timeout=60)
+    # print("Homing...")
+    # send(ser, "G28")           # home all axes
+    # wait_for_ok(ser, timeout=60)
 
     send(ser, "G90")           # absolute positioning
     wait_for_ok(ser)
