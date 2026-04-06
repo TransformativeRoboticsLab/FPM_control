@@ -10,7 +10,7 @@ from datetime import datetime
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-PORT = "COM5"
+PORT = "/dev/pts/10"
 BAUD = 115200
 USE_MANUAL_START = True
 START_X = 0.0  # mm — current physical X when the script begins
