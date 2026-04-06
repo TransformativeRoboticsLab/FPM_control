@@ -28,6 +28,18 @@ PROBE_TIMEOUT = 45          # s
 SETTLE_TIME = 0.2           # s
 A_POSITIVE_CLOCKWISE = True  # set False if your controller uses CCW-positive angles
 
+UNCAP_MOTION_LIMITS = True
+UNCAP_COMMANDS = [
+    # Max feedrate per axis (units/min). Tune if your controller rejects these values.
+    "M203 X100000 Y100000 Z100000 A100000",
+    # Max acceleration per axis (units/s^2).
+    "M201 X100000 Y100000 Z100000 A100000",
+    # Printing/travel acceleration (Marlin-style).
+    "M204 P100000 T100000",
+    # Jerk / junction tuning (Marlin-style).
+    "M205 X1000 Y1000 Z1000 A1000",
+]
+
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 CSV_FILE = f"radial_probe_a_{TIMESTAMP}.csv"
 
@@ -73,6 +85,19 @@ def query_position(ser):
     if not m:
         raise ValueError(f"Could not parse M114 response: {resp!r}")
     return tuple(float(v) for v in m.groups())
+
+
+def apply_motion_uncap(ser):
+    if not UNCAP_MOTION_LIMITS:
+        return
+
+    print("Applying high motion limits...")
+    for cmd in UNCAP_COMMANDS:
+        try:
+            send(ser, cmd, timeout_s=5)
+        except (RuntimeError, TimeoutError) as exc:
+            # Some firmwares or builds may reject specific tuning commands.
+            print(f"  Skipping unsupported limit command '{cmd}': {exc}")
 
 
 # -- path planning -------------------------------------------------------------
@@ -142,6 +167,7 @@ def main():
         ser.read_all()
 
         send(ser, "G90")
+        apply_motion_uncap(ser)
 
         print("Homing all axes (G28)...")
         send(ser, "G28", timeout_s=120)
