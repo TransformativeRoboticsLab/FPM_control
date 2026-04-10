@@ -10,7 +10,7 @@ from datetime import datetime
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-PORT = "/dev/pts/10"
+PORT = "COM5"
 BAUD = 115200
 USE_MANUAL_START = True
 START_X = 0.0  # mm — current physical X when the script begins
@@ -21,12 +21,20 @@ X_POINTS = [0, 10, 20, 30, 40, 50]  # mm — edit freely
 Y_POINTS = [0, 10, 20, 30, 40, 50]
 
 SAFE_Z = 10.0  # mm — travel height between points
-PROBE_START = 8.0  # mm — Z height to begin descending from
+PROBE_START = 5.0  # mm — move to target XY at this Z before probing
 PROBE_Z_MIN = 0.2  # mm — hard floor; abort descent if reached
 PROBE_FEED = 80  # mm/min — slow and steady
-TRAVEL_FEED = 3000  # mm/min
+TRAVEL_FEED = 5000  # mm/min
 Z_STEP = 0.15  # mm — resolution of each probe step
 SETTLE_TIME = 1.0  # seconds — wait after each step before prompting
+
+TRAVEL_FEED_SWEEP_START = 5000
+TRAVEL_FEED_SWEEP_END = 20000
+TRAVEL_FEED_SWEEP_COUNT = 5
+
+PROBE_FEED_SWEEP_START = 80
+PROBE_FEED_SWEEP_END = 300
+PROBE_FEED_SWEEP_COUNT = 5
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 CSV_FILE = f"surface_{TIMESTAMP}.csv"
@@ -146,17 +154,53 @@ def initialize_position(ser):
     )
 
 
+def build_run_plan():
+    """Create the 10-run feed sweep plan requested by the user."""
+    runs = []
+
+    travel_values = np.linspace(
+        TRAVEL_FEED_SWEEP_START,
+        TRAVEL_FEED_SWEEP_END,
+        TRAVEL_FEED_SWEEP_COUNT,
+    )
+    for tf in travel_values:
+        runs.append(
+            {
+                "phase": "travel_feed_sweep",
+                "travel_feed": int(round(tf)),
+                "probe_feed": PROBE_FEED,
+            }
+        )
+
+    probe_values = np.linspace(
+        PROBE_FEED_SWEEP_START,
+        PROBE_FEED_SWEEP_END,
+        PROBE_FEED_SWEEP_COUNT,
+    )
+    for pf in probe_values:
+        runs.append(
+            {
+                "phase": "probe_feed_sweep",
+                "travel_feed": TRAVEL_FEED,
+                "probe_feed": int(round(pf)),
+            }
+        )
+
+    return runs
+
+
 # ── single-point probe ─────────────────────────────────────────────────────────
 
 
-def probe_z(ser, x, y):
+def probe_z(ser, x, y, travel_feed, probe_feed):
     """
-    Move to (x, y), run Marlin's built-in single probe (G30), then query M114.
+    Move directly to (x, y, PROBE_START),
+    set active feedrate to probe_feed,
+    run Marlin's built-in single probe (G30), then query M114.
     Returns the reported (x, y, z) position tuple, or None on failure.
     """
-    send(ser, f"G1 Z{SAFE_Z} F{TRAVEL_FEED}")
-    send(ser, f"G1 X{x:.3f} Y{y:.3f} F{TRAVEL_FEED}")
-    send(ser, f"G1 Z{PROBE_START:.3f} F{TRAVEL_FEED}")
+    send(ser, f"G1 X{x:.3f} Y{y:.3f} Z{PROBE_START:.3f} F{travel_feed}")
+    send(ser, f"G1 F{probe_feed}")
     send(ser, "M400")
 
     try:
@@ -167,7 +211,7 @@ def probe_z(ser, x, y):
         return None
 
     pos = query_m114_position(ser)
-    send(ser, f"G1 Z{SAFE_Z} F{TRAVEL_FEED}")
+    send(ser, f"G1 Z{SAFE_Z} F{travel_feed}")
     return pos
 
 
@@ -237,13 +281,22 @@ def plot_surface(results):
 
 def main():
     grid = [(x, y) for y in Y_POINTS for x in X_POINTS]
-    total = len(grid)
+    run_plan = build_run_plan()
+    points_per_run = len(grid)
+    total = points_per_run * len(run_plan)
     hits = []
     misses = []
 
     print(
-        f"Surface map — {total} points over "
+        f"Surface map — {points_per_run} points/run, {len(run_plan)} runs "
+        f"({total} total probes) over "
         f"X{min(X_POINTS)}–{max(X_POINTS)} Y{min(Y_POINTS)}–{max(Y_POINTS)}"
+    )
+    print(
+        f"Travel sweep: {TRAVEL_FEED_SWEEP_START}→{TRAVEL_FEED_SWEEP_END} mm/min "
+        f"({TRAVEL_FEED_SWEEP_COUNT} runs), "
+        f"Probe sweep: {PROBE_FEED_SWEEP_START}→{PROBE_FEED_SWEEP_END} mm/min "
+        f"({PROBE_FEED_SWEEP_COUNT} runs)"
     )
     print(f"Opening {PORT} at {BAUD} baud...\n")
 
@@ -259,22 +312,81 @@ def main():
 
         with open(CSV_FILE, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["x_m114", "y_m114", "z_m114"])
+            writer.writerow(
+                [
+                    "run_index",
+                    "phase",
+                    "travel_feed",
+                    "probe_feed",
+                    "point_index",
+                    "x_target",
+                    "y_target",
+                    "x_m114",
+                    "y_m114",
+                    "z_m114",
+                    "status",
+                ]
+            )
 
-            for i, (x, y) in enumerate(grid):
+            for run_idx, run in enumerate(run_plan, start=1):
+                run_phase = run["phase"]
+                run_travel_feed = run["travel_feed"]
+                run_probe_feed = run["probe_feed"]
+
                 print(
-                    f"[{i+1:>3}/{total}]  X{x:6.2f}  Y{y:6.2f}  →  ", end="", flush=True
+                    f"\nRun {run_idx:>2}/{len(run_plan)}: {run_phase} "
+                    f"(travel={run_travel_feed} probe={run_probe_feed})"
                 )
-                pos = probe_z(ser, x, y)
 
-                if pos is not None:
-                    px, py, pz = pos
-                    print(f"M114 X={px:.3f} Y={py:.3f} Z={pz:.3f} mm")
-                    writer.writerow([px, py, pz])
-                    hits.append((px, py, pz))
-                else:
-                    print("PROBE FAILED (no parseable M114 position)")
-                    misses.append((x, y))
+                # Ensure a safe height before beginning each run.
+                send(ser, f"G1 Z{SAFE_Z} F{run_travel_feed}")
+
+                for point_idx, (x, y) in enumerate(grid, start=1):
+                    overall_idx = (run_idx - 1) * points_per_run + point_idx
+                    print(
+                        f"[{overall_idx:>3}/{total}]  X{x:6.2f}  Y{y:6.2f}  →  ",
+                        end="",
+                        flush=True,
+                    )
+                    pos = probe_z(ser, x, y, run_travel_feed, run_probe_feed)
+
+                    if pos is not None:
+                        px, py, pz = pos
+                        print(f"M114 X={px:.3f} Y={py:.3f} Z={pz:.3f} mm")
+                        writer.writerow(
+                            [
+                                run_idx,
+                                run_phase,
+                                run_travel_feed,
+                                run_probe_feed,
+                                point_idx,
+                                x,
+                                y,
+                                px,
+                                py,
+                                pz,
+                                "OK",
+                            ]
+                        )
+                        hits.append((px, py, pz))
+                    else:
+                        print("PROBE FAILED (no parseable M114 position)")
+                        writer.writerow(
+                            [
+                                run_idx,
+                                run_phase,
+                                run_travel_feed,
+                                run_probe_feed,
+                                point_idx,
+                                x,
+                                y,
+                                "",
+                                "",
+                                "",
+                                "FAIL",
+                            ]
+                        )
+                        misses.append((run_idx, x, y))
 
         # park
         send(ser, f"G1 Z{SAFE_Z} F{TRAVEL_FEED}")
@@ -284,7 +396,7 @@ def main():
     print(f"\n── Results ──────────────────────────────")
     print(f"Triggered  : {len(hits)}/{total}")
     if misses:
-        print(f"No trigger : {misses}")
+        print(f"No trigger : {len(misses)} points (run, x, y) e.g. {misses[:10]}")
     if hits:
         zv = [r[2] for r in hits]
         print(f"Z range    : {min(zv):.3f} – {max(zv):.3f} mm")
