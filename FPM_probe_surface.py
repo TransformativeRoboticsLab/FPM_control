@@ -10,7 +10,8 @@ from datetime import datetime
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-PORT        = "/dev/tty.usbmodem2048327E55531"
+# PORT        = "/dev/tty.usbmodem2048327E55531"
+PORT = "/dev/ttys001"  # edit as needed
 BAUD        = 115200
 
 # Origin — where the tool currently sits when the script starts.
@@ -25,7 +26,7 @@ Y_POINTS    = [0, 5, 10, 15, 20]   # mm — edit freely
 SAFE_Z      = 10.0   # mm — travel height between points
 PROBE_START = 9.8    # mm — Z height to begin descending from
 PROBE_Z_MIN = 5.0    # mm — hard floor; abort descent if reached
-PROBE_FEED  = 20     # mm/min — slow descent
+PROBE_FEED  = 2000     # mm/min — slow descent
 TRAVEL_FEED = 3000   # mm/min
 Z_STEP      = 0.01   # mm — resolution of each probe step
 SETTLE_TIME = 0.3    # seconds — pause after each step before reading endstop
