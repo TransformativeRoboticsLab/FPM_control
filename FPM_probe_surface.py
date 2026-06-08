@@ -21,16 +21,16 @@ START_X     = 0.0    # mm
 START_Y     = 0.0    # mm
 START_Z     = 10.0   # mm
 
-X_POINTS    = [0, 5, 10, 15, 20]   # mm — edit freely
-Y_POINTS    = [0, 5, 10, 15, 20]   # mm — edit freely
+X_POINTS    = [0, 50, 100, 150, 200]   # mm — edit freely
+Y_POINTS    = [0, 50, 100, 150, 200]   # mm — edit freely
 
 SAFE_Z      = 10.0   # mm — travel height between points
 PROBE_START = 9.8    # mm — Z height to begin descending from
 PROBE_Z_MIN = 5.0    # mm — hard floor; abort descent if reached
 PROBE_FEED  = 10000     # mm/min — slow descent
-TRAVEL_FEED = 10000     # mm/min
+TRAVEL_FEED = 30000     # mm/min
 Z_STEP      = 0.1   # mm — resolution of each probe step
-SETTLE_TIME = 0.01    # seconds — pause after each step before reading endstop
+SETTLE_TIME = 0.1    # seconds — pause after each step before reading endstop
 
 TRAVEL_FEED_SWEEP_START = 5000
 TRAVEL_FEED_SWEEP_END = 20000
